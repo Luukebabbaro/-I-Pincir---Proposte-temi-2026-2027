@@ -307,6 +307,11 @@ function setSort(m) {
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function linkify(s) {
+  const escaped = esc(s);
+  return escaped.replace(/(https?:\/\/[^\s&]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;word-break:break-all">$1</a>');
+}
+
 function render() {
   const el = document.getElementById('proposals-list');
   if (!proposals.length) {
@@ -355,7 +360,7 @@ function render() {
         </div>
         ${extraText ? `<div>
           <div style="font-size:11px;font-weight:700;color:var(--green-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">🔗 Riferimenti</div>
-          <div style="font-size:13px;color:#ccc;line-height:1.65;word-break:break-word">${esc(extraText)}</div>
+          <div style="font-size:13px;color:#ccc;line-height:1.65;word-break:break-word">${linkify(extraText)}</div>
         </div>` : ''}
         ${photosHtml}
       </div>` : '';
