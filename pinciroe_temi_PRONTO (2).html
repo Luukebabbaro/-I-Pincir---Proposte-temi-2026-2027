@@ -189,12 +189,8 @@
       <textarea id="f-motivazione" placeholder="Perché proponi questo tema? Cosa ti ha ispirato?" maxlength="400" style="min-height:70px"></textarea>
     </div>
     <div class="field">
-      <label>Satirica?</label>
-      <select id="f-cat">
-        <option value="Satirico">Sì, è satirico</option>
-        <option value="Non satirico">No, non è satirico</option>
-        <option value="In parte">In parte</option>
-      </select>
+      <label>È satirico? Spiegaci come</label>
+      <textarea id="f-cat" placeholder="Es. Sì, prende in giro le casse malati svizzere... oppure No, è un tema puramente fantasy..." maxlength="300" style="min-height:60px"></textarea>
     </div>
     <div class="field">
       <label>Descrizione *</label>
@@ -202,8 +198,17 @@
       <div class="char-count"><span id="cc">0</span>/600</div>
     </div>
     <div class="field">
-      <label>Altro (opzionale)</label>
-      <textarea id="f-extra" placeholder="Qualsiasi altra idea: musiche, riferimenti visivi, dettagli tecnici..." maxlength="400" style="min-height:70px"></textarea>
+      <label>Foto esempi carro (opzionale)</label>
+      <div id="upload-zone" style="border:1.5px dashed var(--border);border-radius:8px;padding:14px;text-align:center;cursor:pointer;background:#1a1a1a;transition:border-color .2s" onclick="document.getElementById('f-photos').click()" ondragover="event.preventDefault();this.style.borderColor='var(--green-dim)'" ondragleave="this.style.borderColor='var(--border)'" ondrop="handleDrop(event)">
+        <div style="font-size:28px">📷</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:4px">Clicca o trascina le foto qui<br><span style="font-size:11px">Max 3 foto · JPG/PNG · 5MB cadauna</span></div>
+      </div>
+      <input type="file" id="f-photos" accept="image/*" multiple style="display:none" onchange="previewPhotos(this.files)">
+      <div id="photo-previews" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+    </div>
+    <div class="field">
+      <label>Foto / articoli di riferimento (opzionale)</label>
+      <textarea id="f-extra" placeholder="Incolla link a foto, articoli, video che ti hanno ispirato... es. https://..." maxlength="600" style="min-height:60px"></textarea>
     </div>
     <button class="btn-submit" id="btn-submit" onclick="submitProposal()">🎭 Invia proposta</button>
   </div>
@@ -312,6 +317,8 @@ function render() {
     const voted = hasVoted(p.id);
     const cmts = p.comments || [];
     const isOpen = expanded[p.id];
+    const photos = p.photos || [];
+    const photosHtml = photos.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:.6rem 0">${photos.map(url=>`<img src="${url}" style="width:90px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="window.open('${url}','_blank')">`).join('')}</div>` : '';
     const commentsHtml = isOpen ? `
       <div class="comments-area open">
         ${cmts.length ? cmts.map(c => `
@@ -335,13 +342,14 @@ function render() {
           <div class="prop-meta">di <strong>${esc(p.author||'Anonimo')}</strong> · ${timeAgo(p.created_at)}</div>
         </div>
         <div class="vote-col">
-          <button class="vote-btn ${voted?'voted':''}" onclick="doVote(${p.id})" title="${voted?'Già votato':'Vota'}">▲</button>
+          <button class="vote-btn ${voted?'voted':''}" onclick="doVote(${p.id})" title="${voted?'Rimuovi voto':'Vota'}">▲</button>
           <span class="vote-count">${p.votes||0}</span>
         </div>
       </div>
-      <div class="prop-tags"><span class="tag-cat">${esc(p.category)}</span></div>
+      ${p.category ? `<div style="font-size:12px;color:#888;margin:.4rem 0;font-style:italic">💬 ${esc(p.category)}</div>` : ''}
       <div class="prop-desc">${esc(p.description)}</div>
       ${p.extra ? `<div class="prop-extra">${esc(p.extra)}</div>` : ''}
+      ${photosHtml}
       <div class="prop-footer">
         <button class="comment-toggle" onclick="toggleComments(${p.id})">
           💬 ${cmts.length} commento${cmts.length===1?'':'i'} ${isOpen?'▲':'▼'}
@@ -355,15 +363,66 @@ function render() {
 
 // ---- Actions ----
 window.doVote = async function(id) {
-  if (hasVoted(id)) { toast('Hai già votato questa proposta!'); return; }
+  const voted = hasVoted(id);
   try {
-    await sbFetch('rpc/increment_votes', { method:'POST', body:{ proposal_id: id }, prefer:'' });
-    setVoted(id);
-    const p = proposals.find(x=>x.id===id);
-    if (p) p.votes = (p.votes||0)+1;
+    if (voted) {
+      await sbFetch('rpc/decrement_votes', { method:'POST', body:{ proposal_id: id }, prefer:'' });
+      localStorage.removeItem('pv_'+id);
+      const p = proposals.find(x=>x.id===id);
+      if (p) p.votes = Math.max(0,(p.votes||0)-1);
+    } else {
+      await sbFetch('rpc/increment_votes', { method:'POST', body:{ proposal_id: id }, prefer:'' });
+      localStorage.setItem('pv_'+id,'1');
+      const p = proposals.find(x=>x.id===id);
+      if (p) p.votes = (p.votes||0)+1;
+    }
     render();
   } catch(e) { toast('Errore: '+e.message); }
 };
+
+// ---- Photo upload ----
+let selectedFiles = [];
+
+window.handleDrop = function(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').style.borderColor = 'var(--border)';
+  previewPhotos(e.dataTransfer.files);
+};
+
+window.previewPhotos = function(files) {
+  const arr = Array.from(files).slice(0, 3);
+  selectedFiles = arr;
+  const container = document.getElementById('photo-previews');
+  container.innerHTML = arr.map((f, i) => {
+    const url = URL.createObjectURL(f);
+    return `<div style="position:relative">
+      <img src="${url}" style="width:80px;height:65px;object-fit:cover;border-radius:6px;border:1px solid var(--green-dark)">
+      <button onclick="removePhoto(${i})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c0392b;border:none;color:#fff;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
+    </div>`;
+  }).join('');
+};
+
+window.removePhoto = function(i) {
+  selectedFiles.splice(i, 1);
+  previewPhotos(selectedFiles);
+};
+
+async function uploadPhotos(proposalId) {
+  const urls = [];
+  for (const file of selectedFiles) {
+    const ext = file.name.split('.').pop();
+    const path = `${proposalId}/${Date.now()}.${ext}`;
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/photos/${path}`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY, 'Content-Type': file.type },
+      body: file
+    });
+    if (res.ok) {
+      urls.push(`${SUPABASE_URL}/storage/v1/object/public/photos/${path}`);
+    }
+  }
+  return urls;
+}
 
 window.toggleComments = function(id) {
   expanded[id] = !expanded[id];
@@ -403,22 +462,34 @@ window.submitProposal = async function() {
   const title = document.getElementById('f-title').value.trim();
   const motivazione = document.getElementById('f-motivazione').value.trim();
   const description = document.getElementById('f-desc').value.trim();
-  const category = document.getElementById('f-cat').value;
+  const category = document.getElementById('f-cat').value.trim();
   const extra = document.getElementById('f-extra').value.trim();
   if (!title) { toast('Inserisci un titolo!'); return; }
   if (!description) { toast('Inserisci una descrizione!'); return; }
   const btn = document.getElementById('btn-submit');
-  btn.disabled=true; btn.textContent='Invio...';
+  btn.disabled=true; btn.textContent='Invio in corso...';
   try {
-    const [p] = await sbFetch('proposals', { method:'POST', body:{ author, title, description, category, extra: (motivazione ? '💡 '+motivazione+(extra?'\n\n'+extra:'') : extra), votes:0 } });
+    const extraFinal = [motivazione ? '💡 Motivazione: '+motivazione : '', extra].filter(Boolean).join('\n\n');
+    const [p] = await sbFetch('proposals', { method:'POST', body:{ author, title, description, category, extra: extraFinal, votes:0, photos:[] } });
+    // Upload photos if any
+    if (selectedFiles.length > 0) {
+      btn.textContent = 'Caricamento foto...';
+      const photoUrls = await uploadPhotos(p.id);
+      if (photoUrls.length > 0) {
+        await sbFetch('proposals?id=eq.'+p.id, { method:'PATCH', body:{ photos: photoUrls }, prefer:'return=minimal' });
+        p.photos = photoUrls;
+      }
+    }
     p.comments = [];
     proposals.unshift(p);
-    ['f-name','f-title','f-motivazione','f-desc','f-extra'].forEach(id=>document.getElementById(id).value='');
+    ['f-name','f-title','f-motivazione','f-desc','f-cat','f-extra'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
     document.getElementById('cc').textContent='0';
+    document.getElementById('photo-previews').innerHTML='';
+    selectedFiles = [];
     showTab('list');
     toast('✓ Proposta inviata!');
     render();
-  } catch(e) { toast('Errore: '+e.message); showAlert(e.message); }
+  } catch(e) { toast('Errore: '+e.message); }
   btn.disabled=false; btn.textContent='🎭 Invia proposta';
 };
 
