@@ -228,6 +228,7 @@ let proposals = [];
 let comments = {};
 let sortMode = 'votes';
 let expanded = {};
+let expandedDetail = {};
 
 // ---- API helpers ----
 async function sbFetch(path, opts = {}) {
@@ -317,8 +318,48 @@ function render() {
     const voted = hasVoted(p.id);
     const cmts = p.comments || [];
     const isOpen = expanded[p.id];
+    const isExpanded = expandedDetail[p.id];
     const photos = p.photos || [];
-    const photosHtml = photos.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:.6rem 0">${photos.map(url=>`<img src="${url}" style="width:90px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="window.open('${url}','_blank')">`).join('')}</div>` : '';
+
+    // Parse motivazione and extra back out if stored together
+    let motivazione = '', extraText = '';
+    if (p.extra) {
+      const motMatch = p.extra.match(/^💡 Motivazione: ([\s\S]*?)(\n\n|$)/);
+      if (motMatch) {
+        motivazione = motMatch[1].trim();
+        extraText = p.extra.replace(/^💡 Motivazione: [\s\S]*?(\n\n|$)/, '').trim();
+      } else {
+        extraText = p.extra;
+      }
+    }
+
+    const photosHtml = photos.length ? `
+      <div style="margin:.8rem 0">
+        <div style="font-size:11px;font-weight:700;color:var(--green-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">📷 Foto esempi</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${photos.map(url=>`<img src="${url}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="window.open('${url}','_blank')">`).join('')}</div>
+      </div>` : '';
+
+    const detailHtml = isExpanded ? `
+      <div style="margin:.6rem 0;border-top:1px solid var(--border);padding-top:.8rem;display:flex;flex-direction:column;gap:.8rem">
+        ${motivazione ? `<div>
+          <div style="font-size:11px;font-weight:700;color:var(--green-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">💡 Motivazione</div>
+          <div style="font-size:13px;color:#ccc;line-height:1.65">${esc(motivazione)}</div>
+        </div>` : ''}
+        ${p.category ? `<div>
+          <div style="font-size:11px;font-weight:700;color:var(--green-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">🎭 È satirico?</div>
+          <div style="font-size:13px;color:#ccc;line-height:1.65">${esc(p.category)}</div>
+        </div>` : ''}
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--green-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">📋 Descrizione</div>
+          <div style="font-size:13px;color:#ccc;line-height:1.65">${esc(p.description)}</div>
+        </div>
+        ${extraText ? `<div>
+          <div style="font-size:11px;font-weight:700;color:var(--green-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">🔗 Riferimenti</div>
+          <div style="font-size:13px;color:#ccc;line-height:1.65;word-break:break-word">${esc(extraText)}</div>
+        </div>` : ''}
+        ${photosHtml}
+      </div>` : '';
+
     const commentsHtml = isOpen ? `
       <div class="comments-area open">
         ${cmts.length ? cmts.map(c => `
@@ -335,6 +376,10 @@ function render() {
           <button onclick="addComment(${p.id})">Invia</button>
         </div>
       </div>` : '';
+
+    // Short preview of description
+    const previewDesc = p.description && p.description.length > 100 ? p.description.substring(0,100)+'…' : p.description;
+
     return `<div class="proposal" id="prop-${p.id}">
       <div class="prop-top">
         <div class="prop-content">
@@ -346,14 +391,17 @@ function render() {
           <span class="vote-count">${p.votes||0}</span>
         </div>
       </div>
-      ${p.category ? `<div style="font-size:12px;color:#888;margin:.4rem 0;font-style:italic">💬 ${esc(p.category)}</div>` : ''}
-      <div class="prop-desc">${esc(p.description)}</div>
-      ${p.extra ? `<div class="prop-extra">${esc(p.extra)}</div>` : ''}
-      ${photosHtml}
-      <div class="prop-footer">
-        <button class="comment-toggle" onclick="toggleComments(${p.id})">
-          💬 ${cmts.length} commento${cmts.length===1?'':'i'} ${isOpen?'▲':'▼'}
-        </button>
+      ${!isExpanded ? `<div class="prop-desc" style="margin-top:.5rem">${esc(previewDesc)}</div>` : ''}
+      ${detailHtml}
+      <div class="prop-footer" style="margin-top:.7rem">
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="comment-toggle" onclick="toggleDetail(${p.id})" style="color:var(--green)">
+            ${isExpanded ? '▲ Chiudi' : '👁 Leggi tutto'}
+          </button>
+          <button class="comment-toggle" onclick="toggleComments(${p.id})">
+            💬 ${cmts.length} ${cmts.length===1?'commento':'commenti'} ${isOpen?'▲':'▼'}
+          </button>
+        </div>
         <button class="delete-btn" onclick="deleteProposal(${p.id})">🗑 elimina</button>
       </div>
       ${commentsHtml}
@@ -426,6 +474,11 @@ async function uploadPhotos(proposalId) {
 
 window.toggleComments = function(id) {
   expanded[id] = !expanded[id];
+  render();
+};
+
+window.toggleDetail = function(id) {
+  expandedDetail[id] = !expandedDetail[id];
   render();
 };
 
